@@ -97,8 +97,9 @@ export async function GET() {
 
   // Tienda Nube exporta en Latin-1 / ISO-8859-1
   const encoded = iconv.encode(csvContent, "latin1");
+  const uint8Array = new Uint8Array(encoded);
 
-  return new NextResponse(encoded, {
+  return new NextResponse(uint8Array, {
     headers: {
       "Content-Type": "text/csv; charset=iso-8859-1",
       "Content-Disposition": `attachment; filename="numa-precios-${new Date()
