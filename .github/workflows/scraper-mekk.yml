@@ -25,8 +25,12 @@ jobs:
           playwright install --with-deps chromium
 
       - name: Restaurar cookies de sesión
+        env:
+          COOKIES_JSON: ${{ secrets.MEKK_COOKIES_JSON }}
         run: |
-          echo "${{ secrets.MEKK_COOKIES_JSON }}" > scraper/cookies.json
+          mkdir -p scraper
+          echo "$COOKIES_JSON" > scraper/cookies.json
+          cat scraper/cookies.json
 
       - name: Correr scraper
         working-directory: scraper
