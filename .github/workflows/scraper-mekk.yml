@@ -30,14 +30,12 @@ jobs:
         run: |
           mkdir -p scraper
           echo "$COOKIES_JSON" > scraper/cookies.json
-          cat scraper/cookies.json
 
       - name: Correr scraper
-        working-directory: scraper
         env:
           PANEL_API_URL: ${{ secrets.PANEL_API_URL }}
           INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
-        run: python mekk_scraper_v4.py
+        run: python scraper/mekk_scraper_v4.py
 
       - name: Subir JSON generado (para debug)
         if: always()
