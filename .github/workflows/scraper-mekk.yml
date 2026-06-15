@@ -22,34 +22,20 @@ jobs:
           pip install -r scraper/requirements.txt
           playwright install --with-deps chromium
 
-      - name: Debug - Verificar variables
-        env:
-          COOKIES_JSON: ${{ secrets.MEKK_COOKIES_JSON }}
-          PANEL_API_URL: ${{ secrets.PANEL_API_URL }}
-          INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
-        run: |
-          echo "🔍 PANEL_API_URL: $PANEL_API_URL"
-          echo "🔍 INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:0:20}..."
-          echo "🔍 COOKIES_JSON length: ${#COOKIES_JSON}"
-          echo "🔍 COOKIES_JSON first 50 chars: ${COOKIES_JSON:0:50}"
-
       - name: Restaurar cookies de sesión
         env:
           COOKIES_JSON: ${{ secrets.MEKK_COOKIES_JSON }}
         run: |
           mkdir -p scraper/mekk_output
           echo "$COOKIES_JSON" > scraper/cookies.json
-          echo "📄 Contenido de cookies.json:"
-          cat scraper/cookies.json
-          echo ""
-          echo "📊 Tamaño del archivo:"
-          wc -c < scraper/cookies.json
+          echo "✅ Cookies restauradas"
 
       - name: Correr scraper
+        working-directory: scraper
         env:
           PANEL_API_URL: ${{ secrets.PANEL_API_URL }}
           INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
-        run: python scraper/mekk_scraper_v4.py
+        run: python mekk_scraper_v4.py
 
       - name: Subir JSON generado (para debug)
         if: always()
