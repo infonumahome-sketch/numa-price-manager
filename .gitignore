@@ -1,0 +1,14 @@
+# Next.js
+app/.next/
+app/node_modules/
+app/out/
+app/.env.local
+app/.env*.local
+
+# Scraper
+scraper/cookies.json
+scraper/mekk_output/
+
+# Sistema
+.DS_Store
+*.log
