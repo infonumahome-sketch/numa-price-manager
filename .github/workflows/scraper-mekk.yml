@@ -1,10 +1,8 @@
 name: Scraper MEKK -> Panel Numa
 
 on:
-  # Corre todos los lunes a las 9:00 (hora Argentina, UTC-3 -> 12:00 UTC)
   schedule:
     - cron: "0 12 * * 1"
-  # Permite correrlo manualmente desde la pestaña "Actions" en GitHub
   workflow_dispatch:
 
 jobs:
@@ -24,12 +22,28 @@ jobs:
           pip install -r scraper/requirements.txt
           playwright install --with-deps chromium
 
+      - name: Debug - Verificar variables
+        env:
+          COOKIES_JSON: ${{ secrets.MEKK_COOKIES_JSON }}
+          PANEL_API_URL: ${{ secrets.PANEL_API_URL }}
+          INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
+        run: |
+          echo "🔍 PANEL_API_URL: $PANEL_API_URL"
+          echo "🔍 INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:0:20}..."
+          echo "🔍 COOKIES_JSON length: ${#COOKIES_JSON}"
+          echo "🔍 COOKIES_JSON first 50 chars: ${COOKIES_JSON:0:50}"
+
       - name: Restaurar cookies de sesión
         env:
           COOKIES_JSON: ${{ secrets.MEKK_COOKIES_JSON }}
         run: |
-          mkdir -p scraper
+          mkdir -p scraper/mekk_output
           echo "$COOKIES_JSON" > scraper/cookies.json
+          echo "📄 Contenido de cookies.json:"
+          cat scraper/cookies.json
+          echo ""
+          echo "📊 Tamaño del archivo:"
+          wc -c < scraper/cookies.json
 
       - name: Correr scraper
         env:
