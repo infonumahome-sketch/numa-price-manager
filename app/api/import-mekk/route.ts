@@ -43,9 +43,26 @@ export async function POST(req: NextRequest) {
   const authHeader = req.headers.get("authorization") ?? "";
   const expectedToken = process.env.INTERNAL_API_TOKEN;
 
-  if (!expectedToken || authHeader !== `Bearer ${expectedToken}`) {
+  // DEBUG LOGS
+  console.log("🔍 [import-mekk] DEBUG AUTH:");
+  console.log(`   authHeader: "${authHeader}"`);
+  console.log(`   expectedToken: "${expectedToken}"`);
+  console.log(`   authHeader length: ${authHeader.length}`);
+  console.log(`   expectedToken length: ${expectedToken?.length ?? 0}`);
+  console.log(`   Match: ${authHeader === `Bearer ${expectedToken}`}`);
+  console.log(`   Expected format: "Bearer ${expectedToken}"`);
+
+  if (!expectedToken) {
+    console.log("❌ INTERNAL_API_TOKEN no está configurado en variables de entorno");
+    return NextResponse.json({ error: "Token no configurado en servidor" }, { status: 500 });
+  }
+
+  if (authHeader !== `Bearer ${expectedToken}`) {
+    console.log("❌ Auth fallida - token no coincide");
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
+  
+  console.log("✅ Auth exitosa");
 
   let items: ItemMekk[];
   try {
