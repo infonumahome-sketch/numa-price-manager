@@ -1,47 +1,78 @@
-name: Scraper MEKK -> Panel Numa
+name: Scrapers MEKK -> Panel Numa
 
 on:
   schedule:
+    # Lunes 12:00 UTC (9:00 ART)
     - cron: "0 12 * * 1"
+    # Jueves 12:00 UTC (9:00 ART)
+    - cron: "0 12 * * 4"
   workflow_dispatch:
 
 jobs:
-  scrape:
+  scrape-mayorista:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
+      
       - name: Instalar dependencias
         run: |
-          pip install -r scraper/requirements.txt
+          pip install playwright requests
           playwright install --with-deps chromium
-
+      
       - name: Restaurar cookies de sesión
         env:
           COOKIES_JSON: ${{ secrets.MEKK_COOKIES_JSON }}
         run: |
           mkdir -p scraper/mekk_output
           echo "$COOKIES_JSON" > scraper/cookies.json
-          echo "✅ Cookies restauradas"
-
-      - name: Correr scraper
+      
+      - name: Correr scraper mayorista
         working-directory: scraper
         env:
           PANEL_API_URL: ${{ secrets.PANEL_API_URL }}
           INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
           VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
-        run: python mekk_scraper_v4.py
-
-      - name: Subir JSON generado (para debug)
+        run: python mekk_mayorista_scraper.py
+      
+      - name: Guardar artifacts mayorista
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: catalogo-mekk
-          path: scraper/mekk_output/catalogo_mekk.json
+          name: catalogo-mekk-mayorista
+          path: scraper/mekk_output/catalogo_mekk_mayorista.json
+          retention-days: 14
+
+  scrape-minorista:
+    needs: scrape-mayorista
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      
+      - name: Instalar dependencias
+        run: |
+          pip install playwright requests
+          playwright install --with-deps chromium
+      
+      - name: Correr scraper minorista
+        working-directory: scraper
+        env:
+          PANEL_API_URL: ${{ secrets.PANEL_API_URL }}
+          INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
+          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
+        run: python mekk_minorista_scraper.py
+      
+      - name: Guardar artifacts minorista
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalogo-mekk-minorista
+          path: scraper/mekk_output/catalogo_mekk_minorista.json
           retention-days: 14
