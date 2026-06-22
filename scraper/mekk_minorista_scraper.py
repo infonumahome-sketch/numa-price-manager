@@ -130,7 +130,9 @@ async def scrape_categoria(page, nombre_cat, path):
 
                 # Datos desde data-variants (JSON embebido)
                 precio_minorista = None
-                variants_el = await item.query_selector("[data-variants]")
+                # Buscar data-variants en el contenedor del producto
+                variants_el = await item.query_selector(".js-product-container[data-variants]") or await item.query_selector("[data-variants]")
+                
                 if variants_el:
                     raw = await variants_el.get_attribute("data-variants")
                     try:
@@ -139,21 +141,41 @@ async def scrape_categoria(page, nombre_cat, path):
                         raw_unescaped = html.unescape(raw)
                         v = json.loads(raw_unescaped)[0]
                         
+                        is_bowl_dip = "bowl" in nombre.lower() and "dip" in nombre.lower()
+                        if is_bowl_dip:
+                            print(f"\n🔍 DEBUG Bowl Dip encontrado!")
+                            print(f"   Nombre: {nombre}")
+                            print(f"   price_short: {repr(v.get('price_short'))}")
+                            print(f"   price_with_payment_discount_short: {repr(v.get('price_with_payment_discount_short'))}")
+                        
                         # Intentar en este orden: discount -> normal -> sin impuestos
                         precio_str = (
                             v.get("price_with_payment_discount_short") or 
                             v.get("price_short") or
                             v.get("price_long")
                         )
+                        
+                        if is_bowl_dip:
+                            print(f"   precio_str seleccionado: {repr(precio_str)}")
+                        
                         if precio_str:
                             precio_minorista = parsear_precio(precio_str)
+                            if is_bowl_dip:
+                                print(f"   precio_minorista parseado: {precio_minorista}")
                             if precio_minorista:
-                                print(f"         ✓ Precio extraído: {nombre} -> ${precio_minorista}")
+                                pass
                             else:
-                                print(f"         ⚠ Precio parseado a None: {nombre} (raw: {precio_str})")
+                                if is_bowl_dip:
+                                    print(f"   ⚠ FALLO EN PARSEO: {repr(precio_str)}")
+                        else:
+                            if is_bowl_dip:
+                                print(f"   ⚠ NO HAY precio_str! (todos None)")
                     except Exception as e:
                         # Debug: loguear si falla el parseo
-                        print(f"         ⚠ Error parseando JSON de {nombre}: {e}")
+                        if "bowl" in nombre.lower():
+                            print(f"         ⚠ EXCEPCIÓN parseando JSON de {nombre}: {e}")
+                            import traceback
+                            traceback.print_exc()
                         pass
 
                 if nombre:
