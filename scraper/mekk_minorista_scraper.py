@@ -15,6 +15,7 @@ import asyncio
 import json
 import os
 import re
+import html
 from datetime import datetime
 from urllib.parse import urljoin
 
@@ -128,10 +129,21 @@ async def scrape_categoria(page, nombre_cat, path):
                 if variants_el:
                     raw = await variants_el.get_attribute("data-variants")
                     try:
-                        v = json.loads(raw)[0]
-                        precio_str = v.get("price_with_payment_discount_short", "") or v.get("price_short", "")
+                        # El JSON puede venir con &quot; escapados, necesita unescape
+                        import html
+                        raw_unescaped = html.unescape(raw)
+                        v = json.loads(raw_unescaped)[0]
+                        
+                        # Intentar en este orden: discount -> normal -> sin impuestos
+                        precio_str = (
+                            v.get("price_with_payment_discount_short", "") or 
+                            v.get("price_short", "") or
+                            v.get("price_long", "")
+                        )
                         precio_minorista = parsear_precio(precio_str)
-                    except Exception:
+                    except Exception as e:
+                        # Debug: loguear si falla el parseo
+                        print(f"         ⚠ Error parseando JSON de {nombre}: {e}")
                         pass
 
                 if nombre and precio_minorista:
