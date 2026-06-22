@@ -73,14 +73,19 @@ def ensure_dirs():
 
 def parsear_precio(texto):
     """Convierte '$ 12.345,00' o '$12.345' -> 12345.0 (float)"""
-    if not texto:
+    if not texto or not isinstance(texto, str):
         return None
-    nums = re.sub(r'[^\d,]', '', texto)  # deja solo dígitos y coma
-    nums = nums.replace(".", "")        # quita separador de miles
-    nums = nums.replace(",", ".")       # coma decimal -> punto
     try:
-        return float(nums)
-    except ValueError:
+        # Remover $ y espacios
+        clean = texto.replace("$", "").strip()
+        if not clean:
+            return None
+        # Formato argentino: 12.540,00 -> 12540.00
+        # Remove thousand separator (.), convert decimal comma to dot
+        clean = clean.replace(".", "").replace(",", ".")
+        result = float(clean)
+        return result if result > 0 else None
+    except (ValueError, AttributeError):
         return None
 
 
@@ -136,17 +141,22 @@ async def scrape_categoria(page, nombre_cat, path):
                         
                         # Intentar en este orden: discount -> normal -> sin impuestos
                         precio_str = (
-                            v.get("price_with_payment_discount_short", "") or 
-                            v.get("price_short", "") or
-                            v.get("price_long", "")
+                            v.get("price_with_payment_discount_short") or 
+                            v.get("price_short") or
+                            v.get("price_long")
                         )
-                        precio_minorista = parsear_precio(precio_str)
+                        if precio_str:
+                            precio_minorista = parsear_precio(precio_str)
+                            if precio_minorista:
+                                print(f"         ✓ Precio extraído: {nombre} -> ${precio_minorista}")
+                            else:
+                                print(f"         ⚠ Precio parseado a None: {nombre} (raw: {precio_str})")
                     except Exception as e:
                         # Debug: loguear si falla el parseo
                         print(f"         ⚠ Error parseando JSON de {nombre}: {e}")
                         pass
 
-                if nombre and precio_minorista:
+                if nombre:
                     productos.append({
                         "categoria": nombre_cat,
                         "nombre": nombre,
