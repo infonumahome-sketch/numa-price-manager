@@ -1,24 +1,23 @@
 """
-MËKK Minorista Scraper v1
-===========================
+MËKK Minorista Scraper v2 (DINÁMICO)
+=====================================
 Scraperiza mekkhome.com.ar (público, sin login)
+Extrae categorías dinámicamente del sitio
 Extrae: nombre, categoría, precio_minorista, imagen, link
 Envía directamente a /api/import-mekk del panel
 
 Configuración (GitHub Secrets):
+  - MEKK_COOKIES_JSON: cookies si es necesario (no usado aquí, público)
   - PANEL_API_URL: https://numa-price-manager.vercel.app/api/import-mekk
   - INTERNAL_API_TOKEN: token interno
   - VERCEL_BYPASS_TOKEN: bypass para Vercel Deployment Protection
 """
-
 import asyncio
 import json
 import os
 import re
 import html
-from datetime import datetime
 from urllib.parse import urljoin
-
 from playwright.async_api import async_playwright
 import requests
 
@@ -27,169 +26,187 @@ BASE_URL = "https://www.mekkhome.com.ar"
 PANEL_API_URL = os.environ.get("PANEL_API_URL", "")
 INTERNAL_API_TOKEN = os.environ.get("INTERNAL_API_TOKEN", "")
 VERCEL_BYPASS_TOKEN = os.environ.get("VERCEL_BYPASS_TOKEN", "")
-
 OUTPUT_DIR = "mekk_output"
 JSON_FILE = os.path.join(OUTPUT_DIR, "catalogo_mekk_minorista.json")
 
-CATEGORIAS = [
-    ("Vajilla - Sets completos",      "/demesa/vajilla1/sets/"),
-    ("Vajilla - Platos playos",       "/demesa/vajilla1/platos-playo/"),
-    ("Vajilla - Platos hondos/bowls", "/demesa/vajilla1/plato-hondo/"),
-    ("Vajilla - Platos postre",       "/demesa/vajilla1/platos-postre1/"),
-    ("Vajilla - Platos de pasta",     "/demesa/vajilla1/platos-de-pasta/"),
-    ("Vajilla - Tazas",               "/demesa/vajilla1/tazas1/"),
-    ("Vajilla - Compoteras",          "/demesa/vajilla1/compoteras/"),
-    ("Vajilla - Sets Sushi",          "/demesa/vajilla1/platos-de-sushi/"),
-    ("Vajilla - Ensaladeras/fuentes", "/demesa/vajilla1/ensaladeras-y-fuentes/"),
-    ("Cubiertos - De mesa",           "/demesa/cubiertos/de-mesa/"),
-    ("Cubiertos - De ensalada",       "/demesa/cubiertos/de-ensalada/"),
-    ("Cubiertos - Copetín/postre",    "/demesa/cubiertos/de-copetin-y-postre/"),
-    ("Vasos, copas y jarras",         "/demesa/vasos-cristaleria/"),
-    ("Bandejas y tablas",             "/demesa/bandejas-tablas/"),
-    ("Textiles de mesa",              "/demesa/individuales/"),
-    ("Individuales y servilleteros",  "/demesa/individuales1/"),
-    ("Accesorios y complementos",     "/demesa/accesorios-y-complementos/"),
-    ("Frascos - condimentos",         "/demesa/frascos/"),
-    ("Deco - Bandejas",               "/organizacion-y-deco/bandejas/"),
-    ("Deco - Jarrones y floreros",    "/organizacion-y-deco/jarrones-floreros/"),
-    ("Deco - Aromas",                 "/organizacion-y-deco/velas/"),
-    ("Deco - Velas",                  "/organizacion-y-deco/velas1/"),
-    ("Deco - Candelabros",            "/organizacion-y-deco/candelabros/"),
-    ("Deco - Caja/Libro",             "/organizacion-y-deco/caja-libros/"),
-    ("Deco - Canastos y canastas",    "/organizacion-y-deco/canastos/"),
-    ("Deco - Iluminación",            "/organizacion-y-deco/iluminacion/"),
-    ("Deco - Deco de pared",          "/organizacion-y-deco/deco-de-pared/"),
-    ("Deco - Objetos",                "/organizacion-y-deco/objetos/"),
-    ("Deco - Espejos",                "/organizacion-y-deco/espejos/"),
-    ("Baño - Sets de baño",           "/accesorios-de-bano/sets-de-bano/"),
-    ("Baño - Canastos",               "/accesorios-de-bano/canastos1/"),
-]
 # ─────────────────────────────────────────
-
-
 def ensure_dirs():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-
 def parsear_precio(texto):
-    """Convierte '$ 12.345,00' o '$12.345' -> 12345.0 (float)"""
-    if not texto or not isinstance(texto, str):
+    """Convierte '$ 12.540,00' o '$12.540' -> 12540.0 (float)"""
+    if not texto:
         return None
+    nums = re.sub(r'[^\d,]', '', texto)
+    nums = nums.replace(".", "")
+    nums = nums.replace(",", ".")
     try:
-        # Remover $ y espacios
-        clean = texto.replace("$", "").strip()
-        if not clean:
-            return None
-        # Formato argentino: 12.540,00 -> 12540.00
-        # Remove thousand separator (.), convert decimal comma to dot
-        clean = clean.replace(".", "").replace(",", ".")
-        result = float(clean)
-        return result if result > 0 else None
-    except (ValueError, AttributeError):
+        return float(nums)
+    except ValueError:
         return None
 
-
-async def scrape_categoria(page, nombre_cat, path):
-    productos = []
-    url = urljoin(BASE_URL, path)
-    pagina = 1
+async def obtener_categorias(page):
+    """
+    Extrae dinámicamente todas las categorías desde el sitio.
+    Busca links en el menú que apunten a categorías.
+    """
+    await page.goto(BASE_URL, wait_until="networkidle")
+    await page.wait_for_timeout(1500)
+    
+    categorias = []
     vistos = set()
+    
+    # Busca todos los links de categorías (múltiples selectores)
+    links = await page.query_selector_all(
+        'a[href*="/demesa/"], a[href*="/organizacion-y-deco/"], a[href*="/accesorios-de-bano/"]'
+    )
+    
+    for link in links:
+        try:
+            href = await link.get_attribute("href")
+            texto = (await link.inner_text()).strip()
+            
+            # Limpia el nombre (quita números de cantidad de productos)
+            nombre = re.sub(r'\s*\(\d+\)\s*$', '', texto).strip()
+            
+            if href and href not in vistos and nombre and len(nombre) > 2:
+                url_cat = href if href.startswith("http") else urljoin(BASE_URL, href)
+                categorias.append({"nombre": nombre, "url": url_cat})
+                vistos.add(href)
+        except Exception:
+            continue
+    
+    print(f"📂 {len(categorias)} categorías encontradas")
+    for c in categorias:
+        print(f"   • {c['nombre']}")
+    
+    return categorias
 
+async def scrape_categoria(page, categoria):
+    """Scrapeá una categoría completa (todas las páginas)"""
+    productos = []
+    url = categoria["url"]
+    pagina = 1
+    
     while url:
         print(f"   📄 Pág {pagina}: {url}")
-        await page.goto(url, wait_until="networkidle")
-        await page.wait_for_timeout(2000)
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await page.wait_for_timeout(1000)
-
-        items = await page.query_selector_all("div.js-item-product")
-        nuevos = 0
-
-        for item in items:
-            try:
-                # Nombre
-                nombre_el = await item.query_selector(".js-item-name")
-                nombre = (await nombre_el.inner_text()).strip() if nombre_el else ""
-                if not nombre or nombre in vistos:
-                    continue
-                vistos.add(nombre)
-
-                # Link
-                link_el = await item.query_selector("a")
-                link = ""
-                if link_el:
-                    href = await link_el.get_attribute("href") or ""
-                    link = href if href.startswith("http") else urljoin(BASE_URL, href)
-
-                # Imagen
-                img_el = await item.query_selector("img")
-                imagen_url = ""
-                if img_el:
-                    src = await img_el.get_attribute("src") or ""
-                    imagen_url = src if src.startswith("http") else urljoin(BASE_URL, src)
-
-                # Extraer precio del HTML visible (.js-price-display)
-                precio_minorista = None
-                precio_el = await item.query_selector(".js-price-display.item-price")
-                if precio_el:
-                    precio_text = await precio_el.inner_text()
-                    precio_minorista = parsear_precio(precio_text)
+        try:
+            await page.goto(url, wait_until="networkidle")
+            await page.wait_for_timeout(2000)
+            
+            # Scroll para cargar lazy-load
+            for _ in range(3):
+                await page.evaluate("window.scrollBy(0, 800)")
+                await page.wait_for_timeout(500)
+            
+            items = await page.query_selector_all("div.js-item-product")
+            print(f"      → {len(items)} productos")
+            
+            for item in items:
+                try:
+                    # Nombre
+                    nombre_el = await item.query_selector("h2, .product-name, [class*='title']")
+                    nombre = ""
+                    if nombre_el:
+                        nombre = (await nombre_el.inner_text()).strip()
+                    
+                    if not nombre:
+                        nombre = await item.evaluate("el => el.textContent", item)
+                        nombre = nombre.strip()[:100]
+                    
+                    # Imagen
+                    img_el = await item.query_selector("img[loading='lazy'], img")
+                    img_url = ""
+                    if img_el:
+                        img_url = (await img_el.get_attribute("src") or "").strip()
+                    
+                    # Link
+                    link_el = await item.query_selector("a[href]")
+                    link = ""
+                    if link_el:
+                        href = await link_el.get_attribute("href")
+                        link = urljoin(BASE_URL, href) if href else ""
+                    
+                    # PRECIO MINORISTA
+                    precio_minorista = None
+                    
+                    # Intenta desde .js-price-display.item-price (visible HTML)
+                    precio_el = await item.query_selector(".js-price-display.item-price")
+                    if precio_el:
+                        precio_text = await precio_el.inner_text()
+                        precio_minorista = parsear_precio(precio_text)
+                    
+                    # Fallback: data-variants
+                    if not precio_minorista:
+                        variants_el = await item.query_selector("[data-variants]")
+                        if variants_el:
+                            try:
+                                raw = await variants_el.get_attribute("data-variants")
+                                if raw:
+                                    raw_unescaped = html.unescape(raw)
+                                    v = json.loads(raw_unescaped)[0]
+                                    precio_str = (
+                                        v.get("price_with_payment_discount_short") or
+                                        v.get("price_short") or
+                                        v.get("price_long")
+                                    )
+                                    if precio_str:
+                                        precio_minorista = parsear_precio(precio_str)
+                            except Exception:
+                                pass
+                    
+                    # Fallback: data-product-price
+                    if not precio_minorista:
+                        precio_el = await item.query_selector("[data-product-price]")
+                        if precio_el:
+                            try:
+                                raw_price = await precio_el.get_attribute("data-product-price")
+                                if raw_price:
+                                    precio_minorista = float(raw_price) / 100
+                            except Exception:
+                                pass
+                    
+                    if nombre:
+                        productos.append({
+                            "categoria": categoria["nombre"],
+                            "nombre": nombre,
+                            "precio_minorista": precio_minorista,
+                            "imagen_url": img_url,
+                            "link": link,
+                        })
+                        
+                        if precio_minorista:
+                            print(f"          ✓ {nombre[:50]:50s} → ${precio_minorista}")
                 
-                # Si no encontró, intentar desde data-variants como fallback
-                if not precio_minorista:
-                    variants_el = await item.query_selector("[data-variants]")
-                    if variants_el:
-                        raw = await variants_el.get_attribute("data-variants")
-                        try:
-                            raw_unescaped = html.unescape(raw)
-                            v = json.loads(raw_unescaped)[0]
-                            precio_str = (
-                                v.get("price_with_payment_discount_short") or 
-                                v.get("price_short") or
-                                v.get("price_long")
-                            )
-                            if precio_str:
-                                precio_minorista = parsear_precio(precio_str)
-                        except Exception as e:
-                            pass
-
-                if nombre:
-                    productos.append({
-                        "categoria": nombre_cat,
-                        "nombre": nombre,
-                        "precio_minorista": precio_minorista,
-                        "imagen_url": imagen_url,
-                        "link": link,
-                    })
-                    nuevos += 1
-
-            except Exception:
-                continue
-
-        print(f"      → {nuevos} productos con precio")
-
-        # Paginación
-        next_el = await page.query_selector('a[rel="next"], .js-pagination-next')
-        if next_el:
-            next_href = await next_el.get_attribute("href") or ""
-            if next_href:
-                url = next_href if next_href.startswith("http") else urljoin(BASE_URL, next_href)
+                except Exception as e:
+                    continue
+            
+            # Siguiente página
+            next_btn = await page.query_selector(
+                'a[rel="next"], a:has-text("Siguiente"), [class*="next"]:not([disabled])'
+            )
+            if next_btn:
+                next_href = await next_btn.get_attribute("href")
+                url = urljoin(BASE_URL, next_href) if next_href else None
                 pagina += 1
             else:
                 url = None
-        else:
+        
+        except Exception as e:
+            print(f"      ⚠ Error en página: {e}")
             url = None
-
+    
     return productos
 
-
 def enviar_al_panel(productos):
+    """Envía productos al endpoint /api/import-mekk"""
     if not PANEL_API_URL or not INTERNAL_API_TOKEN:
         print("⚠  PANEL_API_URL o INTERNAL_API_TOKEN no configurados.")
-        print("   Los datos quedaron solo en el JSON local, no se enviaron al panel.")
+        print("   Los datos quedaron solo en el JSON local.")
         return
-
+    
     print(f"\n📤 Enviando {len(productos)} productos minorista a {PANEL_API_URL}...")
+    
     payload = [
         {
             "nombre": p["nombre"],
@@ -200,9 +217,8 @@ def enviar_al_panel(productos):
         }
         for p in productos
     ]
-
+    
     try:
-        # Agregar bypass token a la URL si está disponible
         url = PANEL_API_URL
         if VERCEL_BYPASS_TOKEN:
             url = f"{PANEL_API_URL}?x-vercel-protection-bypass={VERCEL_BYPASS_TOKEN}"
@@ -220,54 +236,52 @@ def enviar_al_panel(productos):
         data = resp.json()
         print(f"   ✅ {data}")
     except Exception as e:
-        print(f"   ❌ Error enviando al panel: {e}")
-
+        print(f"   ❌ Error: {e}")
 
 async def main():
     ensure_dirs()
-    print("=" * 52)
-    print("  MËKK Minorista Scraper v1")
-    print("=" * 52)
-
+    print("=" * 60)
+    print("  MËKK Minorista Scraper v2 (DINÁMICO)")
+    print("=" * 60)
+    
     todos = []
+    
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
+        page = await browser.new_page(
             viewport={"width": 1280, "height": 900},
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
         )
-        page = await context.new_page()
-
-        for nombre, path in CATEGORIAS:
-            print(f"\n📂 {nombre}")
+        
+        # Obtener categorías dinámicamente
+        categorias = await obtener_categorias(page)
+        
+        if not categorias:
+            print("❌ Sin categorías encontradas")
+            await browser.close()
+            return
+        
+        # Scrapeá cada categoría
+        for cat in categorias:
+            print(f"\n📂 {cat['nombre']}")
             try:
-                prods = await scrape_categoria(page, nombre, path)
+                prods = await scrape_categoria(page, cat)
                 todos.extend(prods)
                 print(f"   ✅ {len(prods)} productos")
             except Exception as e:
                 print(f"   ❌ Error: {e}")
-
+        
         await browser.close()
-
-    # Deduplicar por nombre
-    vistos = set()
-    unicos = []
-    for p in todos:
-        key = p["nombre"].lower().strip()
-        if key not in vistos:
-            vistos.add(key)
-            unicos.append(p)
-
-    print(f"\n🎉 Total: {len(unicos)} productos minorista únicos")
-
-    if unicos:
+    
+    # Guardar JSON
+    print(f"\n🎉 Total: {len(todos)} productos minorista")
+    if todos:
         with open(JSON_FILE, "w", encoding="utf-8") as f:
-            json.dump(unicos, f, ensure_ascii=False, indent=2)
+            json.dump(todos, f, ensure_ascii=False, indent=2)
         print(f"📁 Guardado en {JSON_FILE}")
-        enviar_al_panel(unicos)
+        enviar_al_panel(todos)
     else:
         print("⚠ Sin productos.")
-
 
 if __name__ == "__main__":
     asyncio.run(main())
