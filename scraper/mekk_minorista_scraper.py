@@ -105,23 +105,27 @@ async def scrape_categoria(page, categoria):
             for item in items:
                 try:
                     # Nombre
-                    nombre_el = await item.query_selector("h2, .product-name, [class*='title']")
+                    nombre_el = await item.query_selector(".js-item-name")
                     nombre = ""
                     if nombre_el:
                         nombre = (await nombre_el.inner_text()).strip()
                     
-                    if not nombre:
-                        nombre = await item.evaluate("el => el.textContent", item)
-                        nombre = nombre.strip()[:100]
-                    
-                    # Imagen
-                    img_el = await item.query_selector("img[loading='lazy'], img")
+                    # Imagen (usa la imagen principal del producto)
+                    img_el = await item.query_selector(".js-item-image.item-image-primary")
                     img_url = ""
                     if img_el:
-                        img_url = (await img_el.get_attribute("src") or "").strip()
-                    
-                    # Link
-                    link_el = await item.query_selector("a[href]")
+                        # Prefiere srcset (URL real), sino src (puede ser placeholder)
+                        srcset = (await img_el.get_attribute("srcset") or "").strip()
+                        if srcset:
+                            # Toma la URL de mayor resolución del srcset
+                            img_url = srcset.split(",")[-1].strip().split(" ")[0]
+                        else:
+                            img_url = (await img_el.get_attribute("src") or "").strip()
+                    if img_url and img_url.startswith("//"):
+                        img_url = "https:" + img_url
+
+                    # Link (el <a> que envuelve la imagen y el nombre)
+                    link_el = await item.query_selector(".item-description > a.item-link")
                     link = ""
                     if link_el:
                         href = await link_el.get_attribute("href")
