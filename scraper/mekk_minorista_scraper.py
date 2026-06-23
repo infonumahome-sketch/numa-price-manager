@@ -199,7 +199,7 @@ async def scrape_categoria(page, categoria):
     return productos
 
 def enviar_al_panel(productos):
-    """Envía productos al endpoint /api/import-mekk"""
+    """Envía productos al endpoint /api/import-mekk (tabla: mekk_productos_minorista)"""
     if not PANEL_API_URL or not INTERNAL_API_TOKEN:
         print("⚠  PANEL_API_URL o INTERNAL_API_TOKEN no configurados.")
         print("   Los datos quedaron solo en el JSON local.")
@@ -214,6 +214,7 @@ def enviar_al_panel(productos):
             "link": p["link"],
             "imagen_url": p["imagen_url"],
             "precio_minorista": p["precio_minorista"],
+            "tipo_proveedor": "minorista",
         }
         for p in productos
     ]
