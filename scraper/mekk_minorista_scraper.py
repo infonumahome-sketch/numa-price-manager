@@ -203,7 +203,7 @@ async def scrape_categoria(page, categoria):
     return productos
 
 def enviar_al_panel(productos):
-    """Envía productos al endpoint /api/import-mekk (tabla: mekk_productos_minorista)"""
+    """Envía productos al endpoint /api/import-mekk en lotes de 100"""
     if not PANEL_API_URL or not INTERNAL_API_TOKEN:
         print("⚠  PANEL_API_URL o INTERNAL_API_TOKEN no configurados.")
         print("   Los datos quedaron solo en el JSON local.")
@@ -223,25 +223,40 @@ def enviar_al_panel(productos):
         for p in productos
     ]
     
-    try:
-        url = PANEL_API_URL
-        if VERCEL_BYPASS_TOKEN:
-            url = f"{PANEL_API_URL}?x-vercel-protection-bypass={VERCEL_BYPASS_TOKEN}"
-        
-        resp = requests.post(
-            url,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {INTERNAL_API_TOKEN}",
-                "Content-Type": "application/json",
-            },
-            timeout=120,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        print(f"   ✅ {data}")
-    except Exception as e:
-        print(f"   ❌ Error: {e}")
+    url = PANEL_API_URL
+    if VERCEL_BYPASS_TOKEN:
+        url = f"{PANEL_API_URL}?x-vercel-protection-bypass={VERCEL_BYPASS_TOKEN}"
+    
+    BATCH_SIZE = 100
+    total_upserts = 0
+    errores = 0
+    
+    for i in range(0, len(payload), BATCH_SIZE):
+        batch = payload[i:i+BATCH_SIZE]
+        lote_num = i // BATCH_SIZE + 1
+        total_lotes = (len(payload) + BATCH_SIZE - 1) // BATCH_SIZE
+        try:
+            resp = requests.post(
+                url,
+                json=batch,
+                headers={
+                    "Authorization": f"Bearer {INTERNAL_API_TOKEN}",
+                    "Content-Type": "application/json",
+                },
+                timeout=60,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            upserts = data.get("upserts", 0)
+            errs = data.get("errores", 0)
+            total_upserts += upserts
+            errores += errs
+            print(f"   Lote {lote_num}/{total_lotes}: {upserts} upserts, {errs} errores")
+        except Exception as e:
+            errores += len(batch)
+            print(f"   ❌ Lote {lote_num}/{total_lotes} falló: {e}")
+    
+    print(f"\n   ✅ Total: {total_upserts} upserts, {errores} errores")
 
 async def main():
     ensure_dirs()
