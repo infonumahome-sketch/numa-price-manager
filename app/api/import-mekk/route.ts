@@ -113,15 +113,18 @@ export async function POST(request: NextRequest) {
     // Upsert en tabla mayorista
     const resultMayorista = await upsert_mayorista(productos);
 
+    const total = resultMinorista.count + resultMayorista.count;
+
     console.log(
       `✅ Importación exitosa: ${resultMinorista.count} minorista + ${resultMayorista.count} mayorista`
     );
 
     return NextResponse.json({
-      success: true,
-      minorista: resultMinorista.count,
-      mayorista: resultMayorista.count,
-      total: resultMinorista.count + resultMayorista.count,
+      ok: true,
+      total_recibidos: productos.length,
+      upserts: total,
+      errores: 0,
+      desactivados: 0,
     });
   } catch (error) {
     console.error("❌ Error en /api/import-mekk:", error);
