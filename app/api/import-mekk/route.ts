@@ -41,13 +41,12 @@ async function upsert_minorista(productos: ProductoMekk[]) {
     activo: true,
   }));
 
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from("mekk_productos_minorista")
-    .upsert(rows, { onConflict: "hash_identidad" })
-    .select();
+    .upsert(rows, { onConflict: "hash_identidad" });
 
   if (error) throw error;
-  return { count: data?.length || 0 };
+  return { count: rows.length };
 }
 
 async function upsert_mayorista(productos: ProductoMekk[]) {
@@ -65,13 +64,12 @@ async function upsert_mayorista(productos: ProductoMekk[]) {
     activo: true,
   }));
 
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from("mekk_productos_mayorista")
-    .upsert(rows, { onConflict: "hash_identidad" })
-    .select();
+    .upsert(rows, { onConflict: "hash_identidad" });
 
   if (error) throw error;
-  return { count: data?.length || 0 };
+  return { count: rows.length };
 }
 
 export async function POST(request: NextRequest) {
