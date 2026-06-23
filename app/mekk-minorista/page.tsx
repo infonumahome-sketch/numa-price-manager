@@ -10,9 +10,8 @@ export default async function MekkMinistaPage() {
 
   // Traer SOLO productos con precio minorista
   const { data, error } = await supabase
-    .from("mekk_productos")
+    .from("mekk_productos_minorista")
     .select("*")
-    .not("precio_minorista", "is", null)
     .order("categoria", { ascending: true })
     .order("nombre", { ascending: true });
 
