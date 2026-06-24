@@ -26,16 +26,21 @@ export async function POST(req: NextRequest) {
       ? 'mekk_productos_mayorista' 
       : 'mekk_productos_minorista';
 
-    const rows = productos.map((p: any) => ({
-      nombre: p.nombre,
-      categoria: p.categoria,
-      link: p.link,
-      imagen_url: p.imagen_url,
-      precio_minorista: tipoProveedor === 'minorista' ? p.precio_minorista : null,
-      precio_mayorista: tipoProveedor === 'mayorista' ? p.precio_mayorista : null,
-      activo: true,
-      updated_at: new Date().toISOString(),
-    }));
+    const rows = productos.map((p: any) => {
+      const base = {
+        nombre: p.nombre,
+        categoria: p.categoria,
+        link: p.link,
+        imagen_url: p.imagen_url,
+        activo: true,
+        updated_at: new Date().toISOString(),
+      };
+      if (tipoProveedor === 'mayorista') {
+        return { ...base, precio_mayorista: p.precio_mayorista };
+      } else {
+        return { ...base, precio_minorista: p.precio_minorista };
+      }
+    });
 
     const { data, error } = await supabase
       .from(tabla)
