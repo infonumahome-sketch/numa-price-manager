@@ -63,3 +63,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message, errores: 0, upserts: 0 }, { status: 500 });
   }
 }
+
+export const maxDuration = 60;
