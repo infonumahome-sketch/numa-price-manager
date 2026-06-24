@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js"; 
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 
@@ -133,4 +133,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+} 
