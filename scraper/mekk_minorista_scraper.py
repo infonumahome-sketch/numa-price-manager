@@ -203,7 +203,7 @@ async def scrape_categoria(page, categoria):
     return productos
 
 def enviar_al_panel(productos):
-    """Envía productos al endpoint /api/import-mekk en lotes de 100"""
+    """Envía productos al endpoint /api/import-mekk en lotes de 50"""
     if not PANEL_API_URL or not INTERNAL_API_TOKEN:
         print("⚠  PANEL_API_URL o INTERNAL_API_TOKEN no configurados.")
         print("   Los datos quedaron solo en el JSON local.")
@@ -227,7 +227,7 @@ def enviar_al_panel(productos):
     if VERCEL_BYPASS_TOKEN:
         url = f"{PANEL_API_URL}?x-vercel-protection-bypass={VERCEL_BYPASS_TOKEN}"
     
-    BATCH_SIZE = 100
+    BATCH_SIZE = 50
     total_upserts = 0
     errores = 0
     
