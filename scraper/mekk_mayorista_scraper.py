@@ -3,7 +3,7 @@ MËKK Mayorista Scraper v2 (DINÁMICO)
 ====================================
 Scraperiza mekkmayorista.com.ar (requiere login)
 Extrae categorías dinámicamente desde el menú
-Extrae: nombre, categoría, precio_mayorista, precio_mayorista_sin_descuento, imagen, link
+Extrae: nombre, categoría, precio_mayorista, imagen, link
 Envía directamente a /api/import-mekk del panel
 
 Configuración (GitHub Secrets):
@@ -22,12 +22,12 @@ import requests
 
 # ─────────────────────────────────────────
 BASE_URL = "https://mekkmayorista.com.ar"
-COOKIES_FILE = "cookies.json"
 PANEL_API_URL = os.environ.get("PANEL_API_URL", "")
 INTERNAL_API_TOKEN = os.environ.get("INTERNAL_API_TOKEN", "")
 VERCEL_BYPASS_TOKEN = os.environ.get("VERCEL_BYPASS_TOKEN", "")
 OUTPUT_DIR = "mekk_output"
 JSON_FILE = os.path.join(OUTPUT_DIR, "catalogo_mekk_mayorista.json")
+BATCH_SIZE = 50
 
 # ─────────────────────────────────────────
 def ensure_dirs():
@@ -96,24 +96,19 @@ async def verificar_login(page):
     return True
 
 async def obtener_categorias(page):
-    """
-    Extrae dinámicamente todas las categorías desde el menú.
-    """
+    """Extrae dinámicamente todas las categorías desde el menú."""
     await page.goto(BASE_URL, wait_until="networkidle")
     await page.wait_for_timeout(1500)
     
     categorias = []
     vistos = set()
     
-    # Busca links de categoría
     links = await page.query_selector_all('a[href*="/categoria/"]')
     
     for link in links:
         try:
             href = await link.get_attribute("href")
             texto = (await link.inner_text()).strip()
-            
-            # Limpia nombre (quita números de cantidad)
             nombre = re.sub(r'\s*\(\d+\)\s*$', '', texto).strip()
             
             if href and href not in vistos and nombre and len(nombre) > 2 and "/store/" not in href:
@@ -142,10 +137,7 @@ def parsear_precio(texto):
         return None
 
 async def obtener_precio_producto(page, url_producto):
-    """
-    Obtiene precios mayorista desde la página del producto.
-    Retorna (precio_final, precio_sin_descuento)
-    """
+    """Obtiene precio mayorista desde la página del producto."""
     try:
         await page.goto(url_producto, wait_until="domcontentloaded")
         await page.wait_for_timeout(2000)
@@ -154,7 +146,6 @@ async def obtener_precio_producto(page, url_producto):
         
         body = await page.inner_text("body")
         
-        # Busca precios con formato $ X.XXX,XX
         precios = re.findall(r'\$\s*[\d]{1,3}(?:\.\d{3})*(?:,\d{1,2})?', body)
         
         valores = []
@@ -164,22 +155,17 @@ async def obtener_precio_producto(page, url_producto):
                 valores.append(v)
         
         if not valores:
-            return None, None
+            return None
         
-        # Si hay 2+ precios, probablemente uno es tachado (sin descuento) y otro final
         if len(valores) >= 2:
             precio_final = min(valores[:2])
-            precio_sin_descuento = max(valores[:2])
-            if precio_final == precio_sin_descuento:
-                precio_sin_descuento = None
         else:
             precio_final = valores[0]
-            precio_sin_descuento = None
         
-        return precio_final, precio_sin_descuento
+        return precio_final
     
-    except Exception as e:
-        return None, None
+    except Exception:
+        return None
 
 async def scrape_categoria(page, categoria):
     """Scrapeá una categoría completa (todas las páginas)"""
@@ -193,7 +179,6 @@ async def scrape_categoria(page, categoria):
             await page.goto(url, wait_until="networkidle")
             await page.wait_for_timeout(2000)
             
-            # Scroll para lazy-load
             for _ in range(4):
                 await page.evaluate("window.scrollBy(0, 800)")
                 await page.wait_for_timeout(500)
@@ -203,7 +188,6 @@ async def scrape_categoria(page, categoria):
             
             for item in items:
                 try:
-                    # Nombre
                     nombre_el = await item.query_selector('div[style*="font-weight: bold"]')
                     nombre = ""
                     if nombre_el:
@@ -212,7 +196,6 @@ async def scrape_categoria(page, categoria):
                     if not nombre:
                         continue
                     
-                    # Imagen
                     primera = await item.query_selector(".primera")
                     img_el = None
                     if primera:
@@ -224,16 +207,13 @@ async def scrape_categoria(page, categoria):
                     if img_el:
                         img_url = (await img_el.get_attribute("src") or "").strip()
                     
-                    # Link
                     href = await item.get_attribute("href") or ""
                     link = urljoin(BASE_URL, href) if href else ""
                     
-                    # Agregar a lista (precio se obtiene después)
                     productos.append({
                         "categoria": categoria["nombre"],
                         "nombre": nombre,
                         "precio_mayorista": None,
-                        "precio_mayorista_sin_descuento": None,
                         "imagen_url": img_url,
                         "link": link,
                     })
@@ -241,7 +221,6 @@ async def scrape_categoria(page, categoria):
                 except Exception:
                     continue
             
-            # Siguiente página
             next_btn = await page.query_selector('a[rel="next"], a:has-text("Siguiente"), [class*="next"]:not([disabled])')
             if next_btn:
                 next_href = await next_btn.get_attribute("href")
@@ -257,46 +236,56 @@ async def scrape_categoria(page, categoria):
     return productos
 
 def enviar_al_panel(productos):
-    """Envía productos al endpoint /api/import-mekk (tabla: mekk_productos_mayorista)"""
+    """Envía productos al endpoint /api/import-mekk en lotes de 50."""
     if not PANEL_API_URL or not INTERNAL_API_TOKEN:
         print("⚠  PANEL_API_URL o INTERNAL_API_TOKEN no configurados")
         print("   Datos guardados solo en JSON local")
         return
     
-    print(f"\n📤 Enviando {len(productos)} productos mayorista...")
+    total = len(productos)
+    lotes = [productos[i:i+BATCH_SIZE] for i in range(0, total, BATCH_SIZE)]
     
-    payload = [
-        {
-            "nombre": p["nombre"],
-            "categoria": p["categoria"],
-            "link": p["link"],
-            "imagen_url": p["imagen_url"],
-            "precio_mayorista": p["precio_mayorista"],
-            "precio_mayorista_sin_descuento": p["precio_mayorista_sin_descuento"],
-            "tipo_proveedor": "mayorista",
-        }
-        for p in productos
-    ]
+    print(f"\n📤 Enviando {total} productos mayorista en {len(lotes)} lotes...")
     
-    try:
-        url = PANEL_API_URL
-        if VERCEL_BYPASS_TOKEN:
-            url = f"{PANEL_API_URL}?x-vercel-protection-bypass={VERCEL_BYPASS_TOKEN}"
+    upserts_total = 0
+    errores_total = 0
+    
+    for idx, lote in enumerate(lotes, 1):
+        payload = [
+            {
+                "nombre": p["nombre"],
+                "categoria": p["categoria"],
+                "link": p["link"],
+                "imagen_url": p["imagen_url"],
+                "precio_mayorista": p["precio_mayorista"],
+                "tipo_proveedor": "mayorista",
+            }
+            for p in lote
+        ]
         
-        resp = requests.post(
-            url,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {INTERNAL_API_TOKEN}",
-                "Content-Type": "application/json",
-            },
-            timeout=120,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        print(f"   ✅ {data}")
-    except Exception as e:
-        print(f"   ❌ Error: {e}")
+        try:
+            url = PANEL_API_URL
+            if VERCEL_BYPASS_TOKEN:
+                url = f"{PANEL_API_URL}?x-vercel-protection-bypass={VERCEL_BYPASS_TOKEN}"
+            
+            resp = requests.post(
+                url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {INTERNAL_API_TOKEN}",
+                    "Content-Type": "application/json",
+                },
+                timeout=60,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            upserts_total += data.get("upserts", 0)
+            print(f"   Lote {idx}/{len(lotes)}: {data.get('upserts', 0)} upserts, 0 errores")
+        except Exception as e:
+            errores_total += len(lote)
+            print(f"   ❌ Lote {idx}/{len(lotes)} falló: {e}")
+    
+    print(f"\n   ✅ Total: {upserts_total} upserts, {errores_total} errores")
 
 async def main():
     ensure_dirs()
@@ -319,12 +308,10 @@ async def main():
         await context.add_cookies(cookies)
         page = await context.new_page()
         
-        # Verificar login
         if not await verificar_login(page):
             await browser.close()
             return
         
-        # Obtener categorías dinámicamente
         categorias = await obtener_categorias(page)
         
         if not categorias:
@@ -332,7 +319,6 @@ async def main():
             await browser.close()
             return
         
-        # Scrapeá cada categoría
         for cat in categorias:
             print(f"\n📂 {cat['nombre']}")
             try:
@@ -342,20 +328,17 @@ async def main():
             except Exception as e:
                 print(f"   ❌ Error: {e}")
         
-        # Obtener precios
         print(f"\n💰 Obteniendo precios de {len(todos)} productos mayorista...")
         for i, prod in enumerate(todos):
             if prod["link"]:
-                precio_final, precio_sin_desc = await obtener_precio_producto(page, prod["link"])
-                prod["precio_mayorista"] = precio_final
-                prod["precio_mayorista_sin_descuento"] = precio_sin_desc
+                precio = await obtener_precio_producto(page, prod["link"])
+                prod["precio_mayorista"] = precio
                 
                 if (i + 1) % 20 == 0 or i == 0:
-                    print(f"   {i+1}/{len(todos)} — {prod['nombre'][:35]:35s} → ${precio_final}")
+                    print(f"   {i+1}/{len(todos)} — {prod['nombre'][:35]:35s} → ${precio}")
         
         await browser.close()
     
-    # Guardar JSON
     print(f"\n🎉 Total: {len(todos)} productos mayorista")
     if todos:
         with open(JSON_FILE, "w", encoding="utf-8") as f:
