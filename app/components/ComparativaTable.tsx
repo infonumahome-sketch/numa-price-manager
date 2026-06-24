@@ -16,17 +16,16 @@ export default function ComparativaTable({ rows }: { rows: Comparativa[] }) {
 
   const filtradas = useMemo(() => {
     return rows.filter((r) => {
-      // Filtro por texto
       if (busqueda.trim()) {
         const q = busqueda.toLowerCase();
         const matches =
           r.producto_nombre.toLowerCase().includes(q) ||
           (r.sku ?? "").toLowerCase().includes(q) ||
-          (r.mekk_nombre ?? "").toLowerCase().includes(q);
+          (r.mekk_minorista_nombre ?? "").toLowerCase().includes(q) ||
+          (r.mekk_mayorista_nombre ?? "").toLowerCase().includes(q);
         if (!matches) return false;
       }
 
-      // Filtro por estado
       if (filtro === "vinculados") return r.vinculo_id !== null;
       if (filtro === "sin_vincular") return r.vinculo_id === null;
       if (filtro === "desactualizados") {
@@ -60,27 +59,31 @@ export default function ComparativaTable({ rows }: { rows: Comparativa[] }) {
   async function saveEdit(varianteId: number) {
     const valores = editando[varianteId];
     if (!valores) return;
-
     setGuardando(varianteId);
-
     const precio = valores.precio === "" ? null : Number(valores.precio);
     const costo = valores.costo === "" ? null : Number(valores.costo);
-
     const { error } = await supabase
       .from("tn_variantes")
       .update({ precio, costo })
       .eq("id", varianteId);
-
     setGuardando(null);
-
     if (error) {
       alert("Error al guardar: " + error.message);
       return;
     }
-
     cancelEdit(varianteId);
-    // Recarga simple para reflejar el cambio en la tabla
     window.location.reload();
+  }
+
+  function difColor(val: number | null) {
+    if (val === null) return "text-numa-400";
+    if (Math.abs(val) <= 1) return "text-numa-400";
+    return val > 0 ? "text-green-600 font-medium" : "text-red-600 font-medium";
+  }
+
+  function difTexto(val: number | null) {
+    if (val === null) return "—";
+    return (val > 0 ? "+" : "") + formatARS(val);
   }
 
   return (
@@ -93,7 +96,6 @@ export default function ComparativaTable({ rows }: { rows: Comparativa[] }) {
           onChange={(e) => setBusqueda(e.target.value)}
           className="w-72 rounded-md border border-numa-200 px-3 py-1.5 text-sm focus:border-numa-500 focus:outline-none"
         />
-
         <div className="flex gap-1 text-sm">
           {(
             [
@@ -116,7 +118,6 @@ export default function ComparativaTable({ rows }: { rows: Comparativa[] }) {
             </button>
           ))}
         </div>
-
         <span className="ml-auto text-sm text-numa-500">
           {filtradas.length} de {rows.length} variantes
         </span>
@@ -130,10 +131,14 @@ export default function ComparativaTable({ rows }: { rows: Comparativa[] }) {
               <th className="px-3 py-2">Variante / SKU</th>
               <th className="px-3 py-2 text-right">Costo actual</th>
               <th className="px-3 py-2 text-right">Precio actual</th>
-              <th className="px-3 py-2">MËKK vinculado</th>
-              <th className="px-3 py-2 text-right">Costo MËKK</th>
-              <th className="px-3 py-2 text-right">Precio sugerido MËKK</th>
-              <th className="px-3 py-2 text-right">Diferencia</th>
+              {/* Mayorista */}
+              <th className="border-l border-numa-200 px-3 py-2">Mayorista vinculado</th>
+              <th className="px-3 py-2 text-right">Precio mayorista</th>
+              <th className="px-3 py-2 text-right">Dif.</th>
+              {/* Minorista */}
+              <th className="border-l border-numa-200 px-3 py-2">Minorista vinculado</th>
+              <th className="px-3 py-2 text-right">Precio minorista</th>
+              <th className="px-3 py-2 text-right">Dif.</th>
               <th className="px-3 py-2"></th>
             </tr>
           </thead>
@@ -150,15 +155,19 @@ export default function ComparativaTable({ rows }: { rows: Comparativa[] }) {
                   key={r.variante_id}
                   className={`border-t border-numa-100 ${desactualizado ? "bg-amber-50" : ""}`}
                 >
+                  {/* Producto */}
                   <td className="px-3 py-2">
                     <div className="font-medium text-numa-900">{r.producto_nombre}</div>
                     <div className="text-xs text-numa-400">{r.categorias}</div>
                   </td>
+
+                  {/* Variante / SKU */}
                   <td className="px-3 py-2">
                     {variante && <div>{variante}</div>}
                     <div className="text-xs text-numa-400">{r.sku || "—"}</div>
                   </td>
 
+                  {/* Costo actual */}
                   <td className="px-3 py-2 text-right">
                     {edicion ? (
                       <input
@@ -178,6 +187,7 @@ export default function ComparativaTable({ rows }: { rows: Comparativa[] }) {
                     )}
                   </td>
 
+                  {/* Precio actual */}
                   <td className="px-3 py-2 text-right">
                     {edicion ? (
                       <input
@@ -197,13 +207,14 @@ export default function ComparativaTable({ rows }: { rows: Comparativa[] }) {
                     )}
                   </td>
 
-                  <td className="px-3 py-2">
-                    {r.mekk_nombre ? (
+                  {/* Mayorista vinculado */}
+                  <td className="border-l border-numa-200 px-3 py-2">
+                    {r.mekk_mayorista_nombre ? (
                       <div>
-                        <div className="text-numa-900">{r.mekk_nombre}</div>
-                        {r.mekk_link && (
+                        <div className="text-numa-900">{r.mekk_mayorista_nombre}</div>
+                        {r.mekk_mayorista_link && (
                           <a
-                            href={r.mekk_link}
+                            href={r.mekk_mayorista_link}
                             target="_blank"
                             rel="noreferrer"
                             className="text-xs text-blue-600 hover:underline"
@@ -211,10 +222,8 @@ export default function ComparativaTable({ rows }: { rows: Comparativa[] }) {
                             Ver en MËKK ↗
                           </a>
                         )}
-                        {r.mekk_activo === false && (
-                          <div className="text-xs text-red-500">
-                            ⚠ Ya no aparece en el sitio del proveedor
-                          </div>
+                        {r.mekk_mayorista_activo === false && (
+                          <div className="text-xs text-red-500">⚠ Ya no aparece en el sitio</div>
                         )}
                       </div>
                     ) : (
@@ -222,35 +231,55 @@ export default function ComparativaTable({ rows }: { rows: Comparativa[] }) {
                     )}
                   </td>
 
+                  {/* Precio mayorista */}
                   <td className="px-3 py-2 text-right">
-                    {r.mekk_precio_mayorista !== null
-                      ? formatARS(r.mekk_precio_mayorista * (r.vinculo_cantidad ?? 1))
-                      : "—"}
+                    {formatARS(r.mekk_precio_mayorista)}
                   </td>
 
+                  {/* Dif. mayorista (vs costo actual) */}
+                  <td className="px-3 py-2 text-right">
+                    <span className={difColor(r.diferencia_costo)}>
+                      {difTexto(r.diferencia_costo)}
+                    </span>
+                  </td>
+
+                  {/* Minorista vinculado */}
+                  <td className="border-l border-numa-200 px-3 py-2">
+                    {r.mekk_minorista_nombre ? (
+                      <div>
+                        <div className="text-numa-900">{r.mekk_minorista_nombre}</div>
+                        {r.mekk_minorista_link && (
+                          <a
+                            href={r.mekk_minorista_link}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            Ver en MËKK ↗
+                          </a>
+                        )}
+                        {r.mekk_minorista_activo === false && (
+                          <div className="text-xs text-red-500">⚠ Ya no aparece en el sitio</div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-numa-400">Sin vincular</span>
+                    )}
+                  </td>
+
+                  {/* Precio minorista */}
                   <td className="px-3 py-2 text-right">
                     {formatARS(r.mekk_precio_minorista)}
                   </td>
 
+                  {/* Dif. minorista (vs precio actual) */}
                   <td className="px-3 py-2 text-right">
-                    {r.diferencia_precio_sugerido !== null ? (
-                      <span
-                        className={
-                          Math.abs(r.diferencia_precio_sugerido) > 1
-                            ? r.diferencia_precio_sugerido > 0
-                              ? "text-green-600 font-medium"
-                              : "text-red-600 font-medium"
-                            : "text-numa-400"
-                        }
-                      >
-                        {r.diferencia_precio_sugerido > 0 ? "+" : ""}
-                        {formatARS(r.diferencia_precio_sugerido)}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
+                    <span className={difColor(r.diferencia_precio_sugerido)}>
+                      {difTexto(r.diferencia_precio_sugerido)}
+                    </span>
                   </td>
 
+                  {/* Editar */}
                   <td className="px-3 py-2 text-right">
                     {edicion ? (
                       <div className="flex gap-1">
