@@ -75,3 +75,4 @@ export type VarianteConProducto = {
     categorias: string | null;
   };
 };
+ 
