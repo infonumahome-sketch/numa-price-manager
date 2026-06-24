@@ -1,14 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 
-/**
- * POST: crea un vínculo entre una variante propia y un producto MEKK.
- * Body: { variante_id: number, mekk_producto_id: number, tipo_mekk: "mayorista" | "minorista" }
- *
- * DELETE: elimina un vínculo existente.
- * Body: { vinculo_id: number }
- */
-
 export async function POST(req: NextRequest) {
   const supabase = createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -17,7 +9,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { variante_id, mekk_producto_id, tipo_mekk = "mayorista" } = body;
+  const { variante_id, mekk_producto_id, tipo_mekk = "minorista" } = body;
 
   if (!variante_id || !mekk_producto_id) {
     return NextResponse.json(
@@ -33,7 +25,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Obtener producto_numa_id desde la variante
   const { data: varianteData, error: varianteError } = await supabase
     .from("tn_variantes")
     .select("producto_id")
@@ -47,15 +38,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const campoMekk = tipo_mekk === "mayorista" ? "mekk_mayorista_id" : "mekk_minorista_id";
+
   const { data, error } = await supabase
     .from("producto_mekk_link")
     .upsert(
       {
         producto_numa_id: varianteData.producto_id,
-        mekk_producto_id,
-        tipo_mekk,
+        [campoMekk]: mekk_producto_id,
       },
-      { onConflict: "producto_numa_id,tipo_mekk" }
+      { onConflict: "producto_numa_id" }
     )
     .select()
     .single();
@@ -81,7 +73,10 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Falta vinculo_id" }, { status: 400 });
   }
 
-  const { error } = await supabase.from("producto_mekk_link").delete().eq("id", vinculo_id);
+  const { error } = await supabase
+    .from("producto_mekk_link")
+    .delete()
+    .eq("id", vinculo_id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
